@@ -18,9 +18,11 @@
 
 #include <QDir>
 #include <QMap>
+#include <QBuffer>
 #include <QFileInfo>
 #include <QThread>
 #include <QDateTime>
+#include <QApplication>
 
 #include "logger.h"
 #include "karaokeplayable.h"
@@ -28,6 +30,7 @@
 #include "database.h"
 #include "playerlyricstext.h"
 #include "pluginmanager.h"
+#include "collectionprovider.h"
 #include "eventor.h"
 #include "util.h"
 
@@ -85,6 +88,7 @@ SongDatabaseScanner::SongDatabaseScanner(QObject *parent)
     : QObject(parent)
 {
     m_langDetector = 0;
+    m_providerStatus = -1;
 
     m_updateTimer.setInterval( 500 );
     m_updateTimer.setTimerType( Qt::CoarseTimer );
@@ -104,14 +108,18 @@ SongDatabaseScanner::~SongDatabaseScanner()
 bool SongDatabaseScanner::startScan()
 {
     // Make a copy in case the settings change during scanning
-    m_collection = pDatabase->getCollections();
+    m_collection = pSettings->collections;
 
     // Do we need the language detector?
     bool need_lang_detector = false;
 
-    for ( int i = 0; i < m_collection.size(); i++ )
-        if ( m_collection[i].detectLanguage )
+    for ( QMap<int,CollectionEntry>::const_iterator it = m_collection.begin();
+          it != m_collection.end();
+          ++it )
+    {
+        if ( it->detectLanguage )
             need_lang_detector = true;
+    }
 
     if ( need_lang_detector )
     {
@@ -178,7 +186,34 @@ void SongDatabaseScanner::updateScanProgress()
     if ( m_finishScanning )
         m_updateTimer.stop();
 
-    emit pEventor->scanCollectionProgress( m_stat_directoriesScanned, m_stat_karaokeFilesFound, m_stat_karaokeFilesProcessed, m_stat_karaokeFilesSubmitted );
+    QString progress = tr("Collection scan: %1 directories scanned, %2 karaoke files found, %3 processed, %4 submitted")
+                                .arg( m_stat_directoriesScanned )
+                                .arg( m_stat_karaokeFilesFound )
+                                .arg( m_stat_karaokeFilesProcessed )
+                                .arg( m_stat_karaokeFilesSubmitted );
+
+    // If m_stringProgress is non-empty it overrides the progress
+    emit pEventor->scanCollectionProgress( m_stringProgress.isEmpty() ? progress : m_stringProgress );
+}
+
+void SongDatabaseScanner::providerFinished(int, QString errmsg)
+{
+    if ( !errmsg.isEmpty() )
+    {
+        Logger::debug( "SongDatabaseScanner: couldn't retrieve the index file: %s", qPrintable( errmsg ) );
+        m_providerStatus = 1;
+        m_stringProgress = errmsg;
+    }
+    else
+    {
+        m_providerStatus = 0;
+        m_stringProgress.clear();
+    }
+}
+
+void SongDatabaseScanner::providerProgress(int id, int percentage)
+{
+    m_stringProgress = tr("Downloading index... %1%" ).arg( percentage );
 }
 
 void SongDatabaseScanner::scanCollectionsThread()
@@ -190,14 +225,65 @@ void SongDatabaseScanner::scanCollectionsThread()
     if ( lastupdate > 0 )
         Logger::debug( "SongDatabaseScanner: collection thread will ignore the timestamps earlier than %s", qPrintable( QDateTime::fromMSecsSinceEpoch( lastupdate ).toString( "yyyy-mm-dd hh:mm:ss") ) );
 
-    for ( int i = 0; i < m_collection.size(); i++ )
+    for ( QMap<int,CollectionEntry>::const_iterator it = m_collection.begin();
+          it != m_collection.end();
+          ++it )
     {
         if ( m_finishScanning != 0 )
             break;
 
+        m_stringProgress.clear();
+        Logger::debug( "SongDatabaseScanner: scanning collection %s", qPrintable( it->name ) );
+
+        // Find the collection provider for this type
+        CollectionProvider * provider = CollectionProvider::createProviderForID( it->id );
+
+        if ( !provider )
+            continue;
+
+        connect( provider, SIGNAL(finished(int,QString)), this, SLOT(providerFinished(int,QString)) );
+        connect( provider, SIGNAL(progress(int,int)), this, SLOT(providerProgress(int,int)) );
+
+        m_providerStatus = -1;
+
+        // Download the index file into this array
+        QByteArray indexdata;
+        QBuffer buf( &indexdata );
+        buf.open( QIODevice::WriteOnly );
+
+        // Initiate the download and wait until finished signal is issued
+        provider->download( 1, it->rootPath + "/index.dat", &buf );
+
+        // Some providers are always synchronous so check it first
+        while ( m_providerStatus == -1 )
+        {
+            qApp->processEvents( QEventLoop::ExcludeUserInputEvents, 500 );
+        }
+
+        // If for this collection we already have the index file, just use it
+        if ( m_providerStatus == 0 )
+        {
+            Logger::debug( "SongDatabaseScanner: successfully downloaded the collection index");
+
+            // Parse the index file and send it directly into submission thread
+            parseCollectionIndex( *it, indexdata );
+            delete provider;
+            continue;
+        }
+
+        // Not so much luck, now we need to proceed with file system enumeration
+        // and this only makes sense with local collection
+        if ( !provider->isLocalProvider() )
+        {
+            delete provider;
+            Logger::error( "Skipped collection %s: provider is not local and no index found",
+                           qPrintable( it->name) );
+            continue;
+        }
+
         // We do not use recursion, and use the queue-like list instead
         QStringList paths;
-        paths << m_collection[i].rootPath;
+        paths << it->rootPath;
 
         // And enumerate all the paths
         while ( !paths.isEmpty() )
@@ -228,6 +314,7 @@ void SongDatabaseScanner::scanCollectionsThread()
 
                 // If we're here this means the directory also has files. Those we will only check for if the parent directory
                 // has been modified after the last update
+                //FIXME! thisdoesn't seem right
                 if ( !modtime_checked )
                 {
                     if ( lastupdate > 0 && QFileInfo( current ).lastModified().toMSecsSinceEpoch() < lastupdate )
@@ -240,14 +327,14 @@ void SongDatabaseScanner::scanCollectionsThread()
                 if ( KaraokePlayable::isSupportedCompleteFile( fi.fileName()) )
                 {
                     // We only add zip files if enabled for this collection
-                    if ( fi.fileName().endsWith( ".zip", Qt::CaseInsensitive) && !m_collection[i].scanZips )
+                    if ( fi.fileName().endsWith( ".zip", Qt::CaseInsensitive) && !it->scanZips )
                         continue;
 
                     // Schedule for processing right away
                     SongDatabaseEntry entry;
                     entry.filePath = fi.absoluteFilePath();
-                    entry.colidx = i;
-                    entry.language = m_collection[i].defaultLanguage;
+                    entry.colidx = it->id;
+                    entry.language = it->defaultLanguage;
 
                     addProcessing( entry );
                 }
@@ -277,8 +364,8 @@ void SongDatabaseScanner::scanCollectionsThread()
                     SongDatabaseEntry entry;
                     entry.filePath = current + Util::separator() + lyric;
                     entry.musicPath = musicFiles[ lyricbase ];
-                    entry.colidx = i;
-                    entry.language = m_collection[i].defaultLanguage;
+                    entry.colidx = it->id;
+                    entry.language = it->defaultLanguage;
 
                     addProcessing( entry );
                 }
@@ -504,12 +591,58 @@ void SongDatabaseScanner::submittingThread()
     if ( !m_abortScanning )
     {
         pDatabase->updateLastScan();
+        pDatabase->getDatabaseCurrentState();
         emit pEventor->scanCollectionFinished();
 
         Logger::debug( "SongDatabaseScanner: submitter thread finished, scan completed" );
     }
     else
         Logger::debug( "SongDatabaseScanner: submitter thread finished, scan aborted" );
+}
+
+void SongDatabaseScanner::parseCollectionIndex( const CollectionEntry& col, const QByteArray &indexdata)
+{
+    // Index file is a simple vertical dash-separated text file in UTF8, containing per each line:
+    // <artist> <title> <filepathfromroot> <musicpathifneeded> <type> [language]
+    // filepathfromroot must contain path of lyrics (for music+lyric file)
+    // or the complete file (if video or zip). In former case musicpathifneeded
+    // should contain the music file, otherwise it should be empty.
+    QStringList entries = QString::fromUtf8( indexdata ).split( "\n" );
+
+    Q_FOREACH( const QString& entry, entries )
+    {
+        // Skip empty lines
+        if ( entry.trimmed().isEmpty() )
+            continue;
+
+        // Parse it
+        QStringList values = entry.split( '|' );
+
+        if ( values.size() < 5 )
+        {
+            Logger::error( "SongDatabaseScanner: Invalid line in the collection index: %s",
+                           qPrintable( entry) );
+            continue;
+        }
+
+        SongDatabaseEntry dbe;
+        dbe.colidx = col.id;
+        dbe.artist = values[0];
+        dbe.title = values[1];
+        dbe.filePath = col.rootPath + "/" + values[2];
+
+        if ( !values[3].isEmpty() )
+            dbe.musicPath = col.rootPath + "/" + values[3];
+
+        dbe.type = values[4];
+
+        if ( values.size() > 5 )
+            dbe.language = values[5];
+
+        addSubmitting( dbe );
+    }
+
+    Logger::error( "SongDatabaseScanner: added %d entries via index file", entries.size() );
 }
 
 void SongDatabaseScanner::addProcessing(const SongDatabaseScanner::SongDatabaseEntry &entry)
@@ -578,3 +711,4 @@ bool SongDatabaseScanner::guessArtistandTitle( const QString& filePath, const QS
 
     return true;
 }
+

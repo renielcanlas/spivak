@@ -41,7 +41,7 @@
 #include "libkaraokelyrics/lyricsloader.h"
 
 
-KaraokeSong::KaraokeSong( KaraokeWidget *w, const SongQueue::Song &song )
+KaraokeSong::KaraokeSong( KaraokeWidget *w, const SongQueueItem &song )
 {
     m_widget = w;
     m_song = song;
@@ -90,12 +90,6 @@ KaraokeSong::~KaraokeSong()
     delete m_lyrics;
     delete m_background;
     delete m_tempMusicFile;
-}
-
-bool KaraokeSong::needsProcessing(const QString &filename)
-{
-    Q_UNUSED(filename);
-    return false;
 }
 
 bool KaraokeSong::open()
@@ -151,9 +145,8 @@ bool KaraokeSong::open()
                 if ( !midi->open( midiData ) )
                     throw QString("Cannot open MIDI file %1").arg( m_musicFileName );
 
-                // We probably should get this data from syntheser, but it is hardcoded there too
-                m_player.loadMedia( midi, 44100, 2 );
-                Logger::debug( "KaraokeSong: MIDI file is being loaded via sequencer" );
+                m_player.loadMedia( midi, MediaPlayer::LoadAudioStream );
+                Logger::debug( "KaraokeSong: MIDI file is being loaded via built-in MIDI sequencer" );
             }
             else
             {
@@ -207,7 +200,11 @@ bool KaraokeSong::open()
             m_lyrics = new PlayerLyricsText( info.artist, info.title );
 
         if ( !m_lyrics->load( lyricDevice.data(), lyricFile ) )
+        {
+            delete m_lyrics;
+            m_lyrics = 0;
             throw( QObject::tr("Can't load lyrics file %1: %2") .arg( lyricFile ) .arg( m_lyrics->errorMsg() ) );
+        }
 
         // Destroy the object right away
         lyricDevice.reset( 0 );
@@ -331,6 +328,9 @@ qint64 KaraokeSong::draw(KaraokePainter &p)
 
     if ( m_background )
         time = qMin( m_background->draw( p ), time );
+
+    // And tint it according to percentage
+    p.fillRect( p.rect(), QColor ( 0, 0, 0, int( (double) pSettings->playerLyricBackgroundTintPercentage * 2.55) ) );
 
     if ( m_lyrics )
     {
@@ -466,6 +466,12 @@ void KaraokeSong::toggleVoiceRemoval()
 
 void KaraokeSong::songLoaded()
 {
+    // We might end up in a situation where the music is loaded, but the lyrics aren't.
+    // In this case we'll get this signal but m_lyrics is NULL.
+    // But m_lyrics is also NULL when we're playing a video file so check for this too.
+    if ( m_lyrics == 0 && !KaraokePlayable::isVideoFile( m_song.file ) )
+        return;
+
     pCurrentState->playerPitch = 50;
     pCurrentState->playerTempo = 50;
     pCurrentState->playerVoiceRemovalEnabled = false;

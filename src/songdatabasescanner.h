@@ -19,6 +19,7 @@
 #ifndef SONGDATABASESCANNER_H
 #define SONGDATABASESCANNER_H
 
+#include <QMap>
 #include <QQueue>
 #include <QTimer>
 #include <QObject>
@@ -27,7 +28,7 @@
 #include <QMutex>
 #include <QDateTime>
 
-#include "database_collectioninfo.h"
+#include "collectionentry.h"
 
 class SongDatabaseScannerWorkerThread;
 class Interface_LanguageDetector;
@@ -63,6 +64,10 @@ class SongDatabaseScanner : public QObject
     private slots:
         void    updateScanProgress();
 
+        // Those slots is used when downloading index using the provider
+        void    providerFinished( int id, QString errmsg );
+        void    providerProgress( int id, int percentage );
+
     private:
         friend class SongDatabaseScannerWorkerThread;
 
@@ -80,6 +85,9 @@ class SongDatabaseScanner : public QObject
 
         // This thread submits the new entries into the database.
         void    submittingThread();
+
+        // Parses the collection index file to skip enumerator and processor
+        void    parseCollectionIndex(const CollectionEntry &col, const QByteArray& indexdata );
 
         // Producer-consumer implementation of processing queue
         QMutex                      m_processingQueueMutex;
@@ -110,7 +118,7 @@ class SongDatabaseScanner : public QObject
         QAtomicInt                  m_abortScanning;
 
         // Copy of collection for scanning
-        QList<Database_CollectionInfo> m_collection;
+        QMap<int,CollectionEntry>   m_collection;
 
         // An optional plugin (auto-loaded) to detect the lyric language
         Interface_LanguageDetector    *       m_langDetector;
@@ -123,6 +131,12 @@ class SongDatabaseScanner : public QObject
 
         // Scan information update timer
         QTimer                      m_updateTimer;
+
+        // Used in tracking the collection provider; 0 means done/succeed, 1 done/error
+        int                         m_providerStatus;
+
+        // If non-empty contains the progress (from a provider)
+        QString                     m_stringProgress;
 };
 
 #endif // SONGDATABASESCANNER_H

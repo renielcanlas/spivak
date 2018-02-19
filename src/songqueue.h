@@ -1,6 +1,6 @@
 /**************************************************************************
  *  Spivak Karaoke PLayer - a free, cross-platform desktop karaoke player *
- *  Copyright (C) 2015-2016 George Yunaev, support@ulduzsoft.com          *
+ *  Copyright (C) 2015-2018 George Yunaev, support@ulduzsoft.com          *
  *                                                                        *
  *  This program is free software: you can redistribute it and/or modify  *
  *  it under the terms of the GNU General Public License as published by  *
@@ -21,7 +21,13 @@
 
 #include <QObject>
 #include <QList>
-#include <QString>
+#include <QMap>
+
+#include "songqueueitem.h"
+
+// Internal queued song storage element
+class SongQueueEntry;
+
 
 // Represents the enqueued songs, maintains people's position
 // and ensures honest rotation
@@ -30,28 +36,6 @@ class SongQueue : public QObject
     Q_OBJECT
 
     public:
-        class Song
-        {
-            public:
-                enum State
-                {
-                    STATE_READY,
-                    STATE_PREPARING,       // Song is in progress of being prepared (for example downloading)
-                    STATE_PLAYING,
-                };
-
-                int         id;         // unique queue id as order can change anytime so index cannot be used as ID
-                int         songid;     // nonzero if the song is in the database, so its status could be updated
-                QString     file;       // may be original or cached
-                QString     title;
-                QString     artist;
-                QString     singer;     // Can be empty
-                State       state;      // see above
-
-                Song();
-                QString stateText() const;
-        };
-
         SongQueue( QObject * parent );
         ~SongQueue();
 
@@ -62,7 +46,7 @@ class SongQueue : public QObject
         bool    isEmpty() const;
 
         // Returns the current song from queue. Crashes if you call it and the queue is empty; use isEmpty first!
-        Song    current() const;
+        SongQueueItem  current() const;
 
         // Moves queue pointer to a previous song. Returns false if this is the first song (pointer doesn't move then)
         bool    prev();
@@ -71,14 +55,15 @@ class SongQueue : public QObject
         bool    next();
 
         // Exports the queue and its current song index
-        QList< Song >   exportQueue() const;
+        QList< SongQueueItem >   exportQueue() const;
         unsigned int    currentItem() const;
 
     public slots:
         void    clear();
 
-        // This slot is called when processing for a music file (downloading, unpacking or converting) is finished.
-        void    processingFinished( const QString& origfile, bool succeed );
+        // Those slots are called from the collection provider. The id is the queue ID
+        void    providerFinished( int id, const QString& error );
+        void    providerProgress( int id, int progress );
 
         // Song status changed (playing/stopped)
         void    statusChanged( int id, bool playstarted );
@@ -90,7 +75,10 @@ class SongQueue : public QObject
         void    addSong( const QString& singer, const QString& file );
 
         // Adds a song into queue, the struct should be filled up already
-        void    addSong(Song song );
+        void    addSong( SongQueueItem song );
+
+        // Add a song with possible retriever
+        void    addSong( SongQueueItem song , SongQueueItemRetriever *retriever );
 
         // Inserts a song into queue at specific position, without rearranging
         void    insertSong( unsigned int position, const QString& singer, int songid );
@@ -99,10 +87,13 @@ class SongQueue : public QObject
         void    replaceSong( unsigned int position, int songid );
 
         // Replaces a song at specific position
-        void    replaceSong( unsigned int position, const Song& song );
+        void    replaceSong( unsigned int position, const SongQueueItem& song );
 
         // Removes a song at specific position
         void    removeSong(unsigned int position );
+
+        // Removes a song using specific ID. Returns true if the removed song is current
+        bool    removeSongById(int id );
 
         // Moves a song from position from to position to
         void    moveSong( unsigned int from, unsigned int to );
@@ -112,6 +103,7 @@ class SongQueue : public QObject
         void    queueUpdated();
         void    save();
         void    load();
+        bool    startRetrieve( int idx );
 
         // Queue of songs. Works as following:
         //
@@ -122,20 +114,20 @@ class SongQueue : public QObject
         //   then next singer, and so on (if there is song in the list, there is singer in m_singers)
         // - The current item is swapped with the singer (i.e. list is rearranged)
         // - List may go back into previous entries, then it is not rearranged. m_lastArranged controls this
-        QList<Song>         m_queue;
+        QList<SongQueueEntry *>     m_queue;
 
         // The current song being played; if == m_queue.size(), nothing is played. Index in m_queue
-        unsigned int        m_currentSong;
+        unsigned int                m_currentSong;
 
         // keeps track of all singers by name
-        QList<QString>      m_singers;
+        QList<QString>              m_singers;
 
         // Queue identifier increment
-        unsigned int        m_nextQueueId;
-};
+        unsigned int                m_nextQueueId;
 
-// Let Qt know about it
-Q_DECLARE_METATYPE(SongQueue::Song)
+        // Number of songs currently being retrieved concurrently
+        unsigned int                m_beingRetrieved;
+};
 
 extern SongQueue * pSongQueue;
 

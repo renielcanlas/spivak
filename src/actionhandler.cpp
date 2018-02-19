@@ -152,6 +152,21 @@ void ActionHandler::enqueueSong(QString singer, QString path)
         emit actionKaraokePlayerStart();
 }
 
+void ActionHandler::dequeueSong(int id)
+{
+    // If the first song is removed, and its being played, skip it
+    bool current = pSongQueue->removeSongById( id );
+
+    if ( current && pCurrentState->playerState != CurrentState::PLAYERSTATE_STOPPED )
+    {
+        // If we have more songs in queue, switch the next one - otherwise stop
+        if ( !pSongQueue->isEmpty() )
+            playerStartAction();
+        else
+            playerStopAction();
+    }
+}
+
 void ActionHandler::error(QString message)
 {
     qDebug("ERROR: %s", qPrintable(message));
@@ -365,7 +380,11 @@ void ActionHandler::nextQueueItemKaraoke()
         emit actionKaraokePlayerStart();
     }
     else
-        pNotification->showMessage( tr("No more songs in queue") );
+    {
+        // If there are no more songs, we stop the current song and clear the queue
+        pSongQueue->clear();
+        emit actionKaraokePlayerStop();
+    }
 }
 
 void ActionHandler::settingsChanged()

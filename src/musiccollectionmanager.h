@@ -1,6 +1,6 @@
 /**************************************************************************
  *  Spivak Karaoke PLayer - a free, cross-platform desktop karaoke player *
- *  Copyright (C) 2015-2016 George Yunaev, support@ulduzsoft.com          *
+ *  Copyright (C) 2015-2018 George Yunaev, support@ulduzsoft.com          *
  *                                                                        *
  *  This program is free software: you can redistribute it and/or modify  *
  *  it under the terms of the GNU General Public License as published by  *
@@ -64,7 +64,7 @@ class MusicCollectionManager : public QObject
         void    volumeSet( int percentage );
 
         // Notification slots (so we can turn off the player when song is started, and then turn it back)
-        void    karaokeStarted( SongQueue::Song song );
+        void    karaokeStarted(SongQueueItem song );
         void    karaokeStopped();
         void    playerCurrentSongFinished();
 

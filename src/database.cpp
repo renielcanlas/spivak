@@ -26,6 +26,7 @@
 #include "sqlite3.h"
 
 #include "actionhandler.h"
+#include "currentstate.h"
 #include "settings.h"
 #include "database.h"
 #include "database_statement.h"
@@ -63,9 +64,8 @@ bool Database::init()
     if ( !recreateSongTable() )
         return false;
 
-    // Collection and setting tables
-    if ( !execute( "CREATE TABLE IF NOT EXISTS settings( version INTEGER, identifier TEXT, lastupdated INT)" )
-    || !execute( "CREATE TABLE IF NOT EXISTS collections( root TEXT, parameters TEXT, lastscan INT )" ) )
+    // Setting table
+    if ( !execute( "CREATE TABLE IF NOT EXISTS settings( version INTEGER, identifier TEXT, lastupdated INT)" ) )
         return false;
 
     // Verify/update version
@@ -177,9 +177,14 @@ bool Database::updateDatabase(const QList<SongDatabaseScanner::SongDatabaseEntry
     {
         // We use a separate search field since sqlite is not necessary built with full Unicode support (nor we want it to be)
         QString search = e.artist.toUpper() + " " + e.title.toUpper();
+        QString path = e.filePath;
+
+        // For non-local collections append the music to file path if we have it
+        if ( pSettings->collections[e.colidx].type != CollectionProvider::TYPE_FILESYSTEM && !e.musicPath.isEmpty() )
+            path += "|" + e.musicPath;
 
         QStringList params;
-        params << e.filePath << e.artist << e.title << e.type << search << e.language;
+        params << path << e.artist << e.title << e.type << search << e.language;
 
         // "path TEXT PRIMARY KEY, artist TEXT, title TEXT, type TEXT, search TEXT, played INT, lastplayed INT, added INT, rating INT, language INT, flags INT, collectionid INT, parameters TEXT"
         if ( !execute( QString("INSERT OR REPLACE INTO songs VALUES( ?, ?, ?, ?, ?, 0, 0, DATETIME(), 0, ?, %1, %2, '' )") .arg( e.flags) .arg(e.colidx), params ) )
@@ -199,9 +204,13 @@ bool Database::updateLastScan()
 
 bool Database::clearDatabase()
 {
-    return execute( "DROP TABLE songs")
-            && recreateSongTable()
-            && execute( "UPDATE settings SET lastupdated=0" );
+    if ( !execute( "DROP TABLE songs") )
+        return false;
+
+    recreateSongTable();
+    execute( "UPDATE settings SET lastupdated=0" );
+    getDatabaseCurrentState();
+    return true;
 }
 
 qint64 Database::lastDatabaseUpdate() const
@@ -229,83 +238,14 @@ qint64 Database::getSongCount() const
     return 0;
 }
 
-QList<Database_CollectionInfo> Database::getCollections()
+qint64 Database::getArtistCount() const
 {
-    Database_Statement stmt;
-    QList<Database_CollectionInfo> cols;
+    Database_Statement songstmt;
 
-    // root TEXT, parameters TEXT, lastscan INT
-    if ( !stmt.prepare( m_sqlitedb, "SELECT rowid, root, parameters, lastscan FROM collections") )
-        return cols;
+    if ( songstmt.prepare( m_sqlitedb, "SELECT COUNT(DISTINCT artist) from songs" ) && songstmt.step() == SQLITE_ROW )
+        return songstmt.columnInt64( 0 );
 
-    while ( stmt.step() == SQLITE_ROW )
-    {
-        Database_CollectionInfo cinfo;
-
-        cinfo.id = stmt.columnInt64( 0 );
-        cinfo.rootPath = stmt.columnText( 1 );
-        cinfo.lastScanned = stmt.columnInt64( 3 );
-
-        // Parse song parameters
-        QJsonDocument doc = QJsonDocument::fromJson( stmt.columnText(2).toUtf8() );
-
-        if ( !doc.isEmpty() )
-        {
-            QJsonObject obj = doc.object();
-
-            if ( obj.contains( "detectLang" ) )
-                cinfo.detectLanguage = obj["detectLang"].toBool();
-
-            if ( obj.contains( "scanZips" ) )
-                cinfo.scanZips = obj["scanZips"].toBool();
-
-            if ( obj.contains( "defaultLang" ) )
-                cinfo.defaultLanguage = obj["defaultLang"].toString();
-
-            if ( obj.contains( "separator" ) )
-                cinfo.artistTitleSeparator = obj["separator"].toString();
-        }
-
-        cols.append( cinfo );
-    }
-
-    return cols;
-}
-
-bool Database::setCollections(QList<Database_CollectionInfo> &collections)
-{
-    Database_Statement stmt;
-
-    if ( !execute( "BEGIN TRANSACTION" ) )
-        return false;
-
-    if ( !execute( "DELETE FROM collections" ) )
-    {
-        execute( "ROLLBACK TRANSACTION" );
-        return false;
-    }
-
-    for ( int i = 0; i < collections.size(); i++ )
-    {
-        const Database_CollectionInfo& e = collections[i];
-
-        // Encode parameters
-        QJsonObject obj;
-
-        obj["detectLang"] = e.detectLanguage;
-        obj["scanZips"] = e.scanZips;
-        obj["defaultLang"] = e.defaultLanguage;
-        obj["separator"] = e.artistTitleSeparator;
-
-        // root TEXT, parameters TEXT, lastscan INT
-        if ( !execute( QString("INSERT INTO collections VALUES( ?, ?, %1 )").arg( e.lastScanned ), QStringList()  << e.rootPath << QJsonDocument( obj ).toJson() ) )
-        {
-            execute( "ROLLBACK TRANSACTION" );
-            return false;
-        }
-    }
-
-    return execute( "COMMIT TRANSACTION" );
+    return 0;
 }
 
 bool Database::cleanupCollections()
@@ -335,6 +275,18 @@ bool Database::cleanupCollections()
     }
 
     return execute( "COMMIT TRANSACTION" );
+}
+
+void Database::getDatabaseCurrentState()
+{
+    pCurrentState->m_databaseSongs = getSongCount();
+    pCurrentState->m_databaseArtists = getArtistCount();
+
+    qint64 updated = lastDatabaseUpdate();
+
+    pCurrentState->m_databaseUpdatedDateTime = updated > 0 ?
+                QDateTime::fromMSecsSinceEpoch( updated ).toString( "yyyy-MM-dd hh:mm:ss")
+                  : tr("never");
 }
 
 

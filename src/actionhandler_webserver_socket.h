@@ -22,6 +22,8 @@
 #include <QObject>
 #include <QTcpSocket>
 
+#include "songqueue.h"
+
 class QTcpSocket;
 
 class ActionHandler_WebServer_Socket : public QObject
@@ -29,12 +31,15 @@ class ActionHandler_WebServer_Socket : public QObject
     Q_OBJECT
 
     public:
-        ActionHandler_WebServer_Socket( QTcpSocket * httpsock );
+        ActionHandler_WebServer_Socket( QTcpSocket * httpsock, const SongQueueItem& m_currentSong );
         ~ActionHandler_WebServer_Socket();
 
     signals:
         // This runs in a different thread, so QueuedConnection is must
         void    queueAdd( QString singer, int id );
+        void    queueRemove( int id );
+        void    commandAction( int id );
+        void    startKaraokeScan();
 
     private slots:
         void    readyRead();
@@ -46,10 +51,31 @@ class ActionHandler_WebServer_Socket : public QObject
     private:
         bool    search( QJsonDocument& document );
         bool    addsong( QJsonDocument& document);
-        bool    listqueue( QJsonDocument& document );
+        bool    authinfo( QJsonDocument& document);
+        bool    login( QJsonDocument& document);
+        bool    logout( QJsonDocument& document);
+        bool    queueList( QJsonDocument& document );
+        bool    queueControl( QJsonDocument& document );
         bool    listDatabase( QJsonDocument& document );
+        bool    controlStatus( QJsonDocument& document );
+        bool    controlAdjust( QJsonDocument& document );
+        bool    controlAction( QJsonDocument& document );
+        bool    collectionInfo( QJsonDocument& document );
+        bool    collectionControl( QJsonDocument& document );
+        bool    settingsGet( QJsonDocument& document );
+        bool    settingsSet( QJsonDocument& document );
 
-        void    sendData( const QByteArray& data, const QByteArray &type = "application/json" );
+        QString escapeHTML( QString orig );
+
+        // True if the currently logged user is a Karaoke admin
+        bool    isAdministrator();
+
+        // Generates or verifies challenge string based on IP address
+        QString generateChallenge();
+        bool    verifyChallenge( const QString& code );
+
+        void    sendData( const QByteArray& data, const QByteArray &type = "application/json", const QByteArray &extraheader = QByteArray() );
+        void    redirect( const QString& url );
 
         QTcpSocket *    m_httpsock;
 
@@ -58,9 +84,10 @@ class ActionHandler_WebServer_Socket : public QObject
 
         // Parsing header results. If url is non-empty, header is parsed
         QString         m_url;
-        QString         m_cookie;
+        QString         m_loggedName;
         QString         m_method;
         unsigned int    m_contentLength;
+        QString         m_currentSong;
 
 };
 

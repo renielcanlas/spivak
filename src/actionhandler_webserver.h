@@ -23,6 +23,8 @@
 #include <QThread>
 #include <QHostInfo>
 
+#include "songqueue.h"
+
 class QTcpServer;
 class QNetworkSession;
 
@@ -41,6 +43,7 @@ class ActionHandler_WebServer : public QThread
         void    dnsLookupFinished(QHostInfo hinfo);
         void    newHTTPconnection();
         void    sessionOpened();
+        void    karaokeStarted(SongQueueItem song );
 
     private:
         void run();
@@ -49,6 +52,7 @@ class ActionHandler_WebServer : public QThread
 
         QNetworkSession *   m_networkSession;
         QTcpServer      *   m_httpServer;
+        SongQueueItem       m_currentSong;
 };
 
 #endif // WEBSERVER_H

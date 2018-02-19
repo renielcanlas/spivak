@@ -19,8 +19,12 @@
 #ifndef SETTINGS_H
 #define SETTINGS_H
 
+#include <QMap>
 #include <QFont>
 #include <QColor>
+#include <QJsonValue>
+
+#include "collectionentry.h"
 
 class Settings
 {
@@ -41,6 +45,8 @@ class Settings
         QColor      playerLyricsTextBeforeColor;
         QColor      playerLyricsTextAfterColor;
         QColor      playerLyricsTextSpotColor;
+        QColor      playerLyricsTextBackgroundColor;
+        int         playerLyricBackgroundTintPercentage;
         QFont       playerLyricsFont;
         int         playerLyricsFontMaxSize;
         int         playerLyricsFontFitLines;
@@ -53,16 +59,29 @@ class Settings
         int         playerMusicLyricDelay;      // delay in milliseconds between lyrics and music for this hardware
         int         playerVolumeStep;           // how much change the volume when +/- is pressed
 
+        int         dialogAutoCloseTimer;       // How fast the dialog will automatically close
 
+        //
         // Queue parameters
-        bool        queueAddNewSingersNext; // if true, new singers are added right after the current singer; otherwise at the end.
-        QString     queueFilename;  // if defined, we save queue into file
+        //
+
+        // if true, new singers are added right after the current singer; otherwise at the end.
+        bool        queueAddNewSingersNext;
+
+        // if defined, we save queue into file
+        QString     queueFilename;
         bool        queueSaveOnExit;
 
         // Notification
         QColor      notificationTopColor;
         QColor      notificationCenterColor;
 
+        // Collection list mapped by collection ID
+        QMap<int,CollectionEntry>  collections;
+
+        // Maximum number of songs which could be simultaneously
+        // got ready (i.e. downloaded or converted)
+        unsigned int    queueMaxConcurrentPrepare;
 
         // Player background
         BackgroundType  playerBackgroundType;
@@ -83,11 +102,13 @@ class Settings
         QString         lircDevicePath;
         QString         lircMappingFile;
 
-        // HTTP port
+        // HTTP server
         bool            httpEnabled;
         bool            httpEnableAddQueue;
         unsigned int    httpListenPort;
         QString         httpDocumentRoot;
+        QString         httpAccessCode;
+        QString         httpForceUseHost;
 
         // If true, we should start in a full screen mode (but this doesn't mean NOW is a fullscreen mode)
         bool            startInFullscreen;
@@ -100,11 +121,18 @@ class Settings
 
     public:
         // Load and save settings
-        void            load();
-        void            save();
+        bool            load();
+        bool            save();
+
+        QJsonObject     toJson();
+        void            fromJson( const QJsonObject& data );
 
     private:
+        QJsonValue      fromStringList( const QStringList& list );
+        QStringList     toStringList( const QJsonValue& value, const QString& defaultval = "" );
+
         QString         m_appDataPath;
+        QString         m_settingsFile;
 
         // If the song path replacement is set (songPathReplacementFrom is not empty), this would replace '^from' to '^to'
         QString         songPathReplacementFrom;

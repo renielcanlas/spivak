@@ -75,10 +75,13 @@ class MainWindow : public QMainWindow, public Ui::MainWindow
         void    karaokeDatabaseAbortScan();
         bool    karaokeDatabaseIsScanning() const;
 
+        // Whether to deactivate or reactivate screensever supression
+        void    setScreensaverSuppression ( bool supress );
+
     private slots:
         // Scan collection slots from Eventor
         void    scanCollectionStarted();
-        void    scanCollectionProgress( unsigned long directoriesScanned, unsigned long karaokeFilesFound, unsigned long filesProcessed, unsigned long filesSubmitted );
+        void    scanCollectionProgress(QString progressinfo);
         void    scanCollectionFinished();
 
         // Crash generator to test symbol submitter

@@ -22,7 +22,7 @@
 #include <QFile>
 #include <QIODevice>
 
-#include "sonivox/eas.h"
+#include "libsonivox/include/eas.h"
 
 // This class represents a playable WAV file which is rendered through the MIDI
 // synthesis while being played.
@@ -53,6 +53,7 @@ class MIDISyntheser : public QIODevice
         static int EAS_FILE_size( void *handle );
 
         bool    fillBuffer();
+        void    fillWAVheader();
 
         QByteArray      m_midiData;
 

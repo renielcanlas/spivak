@@ -5,7 +5,7 @@
 #-------------------------------------------------
 
 QT       += core gui widgets network concurrent
-CONFIG += GOOGLEBREAKPAD
+#CONFIG += GOOGLEBREAKPAD
 
 
 TARGET = spivak
@@ -53,16 +53,21 @@ SOURCES += main.cpp\
     welcome_wizard.cpp \
     database.cpp \
     database_songinfo.cpp \
-    database_collectioninfo.cpp \
     database_statement.cpp \
     actionhandler_webserver_socket.cpp \
     feedbackdialog.cpp \
-    crashhandler.cpp \
     mediaplayer.cpp \
     midisyntheser.cpp \
     midistripper.cpp \
     pluginmanager.cpp \
-    notification.cpp
+    notification.cpp \
+    messageboxautoclose.cpp \
+    collectionentry.cpp \
+    collectionprovider.cpp \
+    collectionproviderfs.cpp \
+    collectionproviderhttp.cpp \
+    songqueueitem.cpp \
+    songqueueitemretriever.cpp
 
 HEADERS  += mainwindow.h \
     settings.h \
@@ -107,7 +112,6 @@ HEADERS  += mainwindow.h \
     welcome_wizard.h \
     database.h \
     database_songinfo.h \
-    database_collectioninfo.h \
     database_statement.h \
     actionhandler_webserver_socket.h \
     feedbackdialog.h \
@@ -118,7 +122,14 @@ HEADERS  += mainwindow.h \
     pluginmanager.h \
     interface_languagedetector.h \
     interface_mediaplayer.h \
-    notification.h
+    notification.h \
+    messageboxautoclose.h \
+    collectionentry.h \
+    collectionprovider.h \
+    collectionproviderfs.h \
+    collectionproviderhttp.h \
+    songqueueitem.h \
+    songqueueitemretriever.h
 
 FORMS    += mainwindow.ui \
     playerwidget.ui \
@@ -135,30 +146,34 @@ RESOURCES += resources.qrc
 DEFINES += SQLITE_OMIT_LOAD_EXTENSION
 
 GOOGLEBREAKPAD {
+  SRC += crashhandler.cpp
   LIBS += -L$$PWD/../extralibs/google-breakpad/lib -lgoogle-breakpad
   INCLUDEPATH += $$PWD/../extralibs/google-breakpad/include/
   mac: LIBS += /System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation /System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices
   DEFINES += USE_BREAKPAD
 }
 
-LIBS += -L$$PWD/../extralibs/lib -lsonivox
 INCLUDEPATH += $$PWD/.. $$PWD/../extralibs/include
 DEPENDPATH += $$PWD/../libkaraokelyrics
 
 
-win32:CONFIG(release, debug|release): LIBS += -L$$OUT_PWD/../libkaraokelyrics/release/ -lkaraokelyrics
-else:win32:CONFIG(debug, debug|release): LIBS += -L$$OUT_PWD/../libkaraokelyrics/debug/ -lkaraokelyrics
-else:unix: LIBS += -L$$OUT_PWD/../libkaraokelyrics/ -lkaraokelyrics
+win32:CONFIG(release, debug|release): LIBS += -L$$OUT_PWD/../libkaraokelyrics/release/ -lkaraokelyrics -L$$OUT_PWD/../libsonivox/src/release/ -lsonivox
+else:win32:CONFIG(debug, debug|release): LIBS += -L$$OUT_PWD/../libkaraokelyrics/debug/ -lkaraokelyrics -L$$OUT_PWD/../libsonivox/src/debug/ -lsonivox
+else:unix: LIBS += -L$$OUT_PWD/../libkaraokelyrics/ -lkaraokelyrics -L$$OUT_PWD/../libsonivox/src/ -lsonivox
 
-win32-g++:CONFIG(release, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../libkaraokelyrics/release/libkaraokelyrics.a
-else:win32-g++:CONFIG(debug, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../libkaraokelyrics/debug/libkaraokelyrics.a
-else:win32:!win32-g++:CONFIG(release, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../libkaraokelyrics/release/karaokelyrics.lib
-else:win32:!win32-g++:CONFIG(debug, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../libkaraokelyrics/debug/karaokelyrics.lib
-else:unix: PRE_TARGETDEPS += $$OUT_PWD/../libkaraokelyrics/libkaraokelyrics.a
+win32-g++:CONFIG(release, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../libkaraokelyrics/release/libkaraokelyrics.a $$OUT_PWD/../libsonivox/src/release/libsonivox.a
+else:win32-g++:CONFIG(debug, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../libkaraokelyrics/debug/libkaraokelyrics.a $$OUT_PWD/../libsonivox/src/debug/libsonivox.a
+else:win32:!win32-g++:CONFIG(release, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../libkaraokelyrics/release/karaokelyrics.lib $$OUT_PWD/../libsonivox/src/release/sonivox.lib
+else:win32:!win32-g++:CONFIG(debug, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../libkaraokelyrics/debug/karaokelyrics.lib $$OUT_PWD/../libsonivox/src/debug/sonivox.lib
+else:unix: {
+    LIBS += -L$$PWD/../extralibs/lib -lsonivox
+    PRE_TARGETDEPS += $$OUT_PWD/../libkaraokelyrics/libkaraokelyrics.a $$OUT_PWD/../libsonivox/src/libsonivox.a
+}
 
 mac: {
     INCLUDEPATH += /Library/Frameworks/GStreamer.framework/Headers
     LIBS += -L/Library/Frameworks/GStreamer.framework/Libraries
+    LIBS += -L$$PWD/../extralibs/lib -lsonivox
 }
 
 unix:!mac:{

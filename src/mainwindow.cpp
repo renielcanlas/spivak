@@ -40,6 +40,7 @@
 #include "settingsdialog.h"
 #include "musiccollectionmanager.h"
 #include "welcome_wizard.h"
+#include "songqueue.h"
 #include "logger.h"
 #include "eventor.h"
 #include "feedbackdialog.h"
@@ -63,7 +64,9 @@ MainWindow::MainWindow(QWidget *parent) :
     m_settings = 0;
     m_welcomeWizard = 0;
 
-    // We don't need any specific crypto
+    qRegisterMetaType<SongQueueItem>();
+
+    // We don't use any crypto
     qsrand( (unsigned int) (long) pMainWindow * (unsigned int) QDateTime::currentMSecsSinceEpoch() );
 
     // Eventor is created first as it does not connect to anything, and others connect to it
@@ -99,15 +102,13 @@ MainWindow::MainWindow(QWidget *parent) :
 
     // Load the song database
     pDatabase->init();
+    pDatabase->getDatabaseCurrentState();
 
-    int songcount = pDatabase->getSongCount();
-
-    if ( songcount > 0 )
-        statusbar->showMessage( tr("Song database: %1 songs, last updated %2")
-                                .arg( pDatabase->getSongCount() )
-                                .arg( pDatabase->lastDatabaseUpdate() > 0 ?
-                                          QDateTime::fromMSecsSinceEpoch( pDatabase->lastDatabaseUpdate() * 1000).toString( "yyyy-MM-dd hh:mm:ss")
-                                            : tr("never") ),
+    if ( pCurrentState->m_databaseSongs > 0 )
+        statusbar->showMessage( tr("Song database: %1 songs, %2 artists, last updated %3")
+                                .arg( pCurrentState->m_databaseSongs )
+                                .arg( pCurrentState->m_databaseArtists )
+                                .arg( pCurrentState->m_databaseUpdatedDateTime ),
                                 20000 );
 
     // Initialize the controller
@@ -181,10 +182,14 @@ MainWindow::MainWindow(QWidget *parent) :
         qDebug("crashing in 2 seconds");
         QTimer::singleShot( 2000, this, SLOT(generateCrash()) );
     }
+
+    setScreensaverSuppression( true );
 }
 
 MainWindow::~MainWindow()
 {
+    setScreensaverSuppression( false );
+
     if ( m_songScanner )
     {
         m_songScanner->stopScan();
@@ -235,11 +240,25 @@ void MainWindow::menuAbout()
 
     ui_about.setupUi( &dlg );
 
-    ui_about.labelAbout->setText( tr("<b>Spivak Karaoke Player version %1 beta%2</b><br><br>"
-            "Copyright (C) George Yunaev 2015-2016, <a href=\"mailto:support@ulduzsoft.com\">support@ulduzsoft.com</a><br><br>"
+    ui_about.labelAbout->setText( tr("<b>Spivak Karaoke Player version %1.%2</b><br><br>"
+            "Copyright (C) George Yunaev 2015-2018, <a href=\"mailto:support@ulduzsoft.com\">support@ulduzsoft.com</a><br><br>"
             "Web site: <a href=\"http://www.ulduzsoft.com\">www.ulduzsoft.com/karplayer</a><br><br>"
             "This program is licensed under terms of GNU General Public License "
             "version 3; see LICENSE file for details.") .arg(APP_VERSION_MAJOR) .arg(APP_VERSION_MINOR) );
+
+    ui_about.textThirdParty->setHtml( tr(
+        "<qt>"
+        "<h3>Qt toolkit library</h3>"
+        "<p>Spivak uses a portable GUI/core library available from "
+        "<a href=\"http://qt.nokia.com\">http://qt.nokia.com</a>. This toolkit library is "
+        "available and used under LGPL license.</p>"
+        "<h3>Icons</h3>"
+        "<p>Spivak uses icons developed by DryIcons, "
+        "<a href=\"http://www.dryicons.com\">http://www.dryicons.com</a>"
+        "<h3>GStreamer</h3>"
+        "<p>Spivak uses GStreamer library from <a href=\"http://gstreamer.org\">"
+        "gstreamer.org</a> for playing music and video files</p>"
+        "</qt>" ) );
 
     dlg.exec();
 }
@@ -394,19 +413,40 @@ bool MainWindow::karaokeDatabaseIsScanning() const
     return m_songScanner != 0;
 }
 
+void MainWindow::setScreensaverSuppression(bool supress)
+{
+#if defined (Q_OS_LINUX)
+    // On Linux we use the xdg-screensaver tool
+    QStringList args;
+
+    if ( supress )
+        args << "suspend";
+    else
+        args << "resume";
+
+    args << QString::number( winId() );
+
+    int ret = QProcess::execute( "xdg-screensaver", args );
+
+    if ( ret == -1 )
+        Logger::error( "xdg-screensaver tool is not installed, screensaver won't be disabled");
+
+#elif defined (Q_OS_WIN)
+    if ( supress )
+        SetThreadExecutionState( ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED );
+    else
+        SetThreadExecutionState( ES_CONTINUOUS );
+#endif
+}
+
 void MainWindow::scanCollectionStarted()
 {
     statusbar->showMessage( "Collection scan started", 1000 );
 }
 
-void MainWindow::scanCollectionProgress(unsigned long directoriesScanned, unsigned long karaokeFilesFound, unsigned long filesProcessed, unsigned long filesSubmitted)
+void MainWindow::scanCollectionProgress( QString progressinfo )
 {
-    statusbar->showMessage( tr("Collection scan: %1 directories scanned, %2 karaoke files found, %3 processed, %4 submitted")
-                            .arg( directoriesScanned )
-                            .arg( karaokeFilesFound )
-                            .arg( filesProcessed)
-                            .arg( filesSubmitted),
-                            1000 );
+    statusbar->showMessage( progressinfo, 1000 );
 }
 
 void MainWindow::scanCollectionFinished()

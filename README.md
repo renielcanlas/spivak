@@ -1,10 +1,13 @@
-# Spivak - free cross-platform Karaoke Player
+# Spivak - free cross-platform Karaoke Player [![Build Status](https://travis-ci.org/gyunaev/spivak.svg?branch=master)](https://travis-ci.org/gyunaev/spivak)
 
 Spivak is a free, cross-platform (Linux/Windows/OS X) Karaoke player based on GStreamer and Qt5. It supports a wide range of Karaoke formats, with the goal of playing all more or less widespread Karaoke formats on all popular platforms. It also has strong support for foreign languages, so playing Karaoke in Japanese, Russian or Hindu is fully supported.
 
-Currently Spivak is in alpha stage, but already has impressive set of features, and is stable enough to survive a party without a single crash or hang.
+Spivak has been designed to be a standalone Karaoke player, which could be used at your parties without a dedicated DJ. It is primarily controlled through its Web interface, so your guests can take care of themselves, searching and adding songs into the queue. The player will ensure fair rotation.
+
+Currently Spivak is just out of beta, and already has impressive set of features, and is stable enough to survive a party without a single crash or hang. Its web interface has been redesigned and looks much better.
 
 Spivak is licensed under GNU GPL version 3, and is written by George Yunaev.
+
 
 ## Features
 
@@ -28,23 +31,25 @@ The player has been tested primarily on Linux, but has been briefly tested on Wi
 
 Currently the only way to test the player is to build it from source, which should be easy on Linux, but may be cumbersome on other OSes. You would need the following libraries:
 
-- Qt 5.5 (might work on prior versions too, but will NOT work on Qt4);
+- Qt 5.5 (might work on prior versions too - this means the code may need changes which are doable - but will NOT work on Qt4);
 - GStreamer 1.0 (will NOT work on 0.10) and related libraries, notably Glib;
 - uchardet2 (for automatic charset decoding);
 - libzip (for handling ZIP and old KFN files);
-- libsonivox (to render MIDI in software) - you can get it from here: https://github.com/gyunaev/libsonivox ;
 - libcld2 (to build Karaoke language detector plugin; optional);
 - sqlite3 (for karaoke database);
 
-Please do not build with google breakpad, as this would enable automatic crash reporting which is useless for me because I do not have your symbols file.
+**Please do not build your builds with Google breakpad module enabled**, as this would enable automatic crash reporting which is useless for me because I do not have your symbols file.
 
 To build, please comment out the line "CONFIG += GOOGLEBREAKPAD" in src/src.pro, and then build as usual:
 
     qmake (or qmake-qt5)
     make
+    
+Apologies for the "make -jX" build being still broken.
 
 Copy the player executable from src/spivak somewhere, and copy all the plugins into the "plugins" subdirectory where spivak executable is located.
 
 ## Contacts
 
-At this moment please use gyunaev@ulduzsoft.com to send the bugs and feature requests. Please only do so if you're willing to actively participate in bugfixing, such as testing proposed patches, and are able to compile the player yourself from the source code. If you cannot, please wait until the first beta is available, when the official builds would be available.
+Please use Github issue tracker for feature requests.
+

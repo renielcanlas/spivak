@@ -16,7 +16,6 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  **************************************************************************/
 
-#include <QMessageBox>
 #include <QPainter>
 #include <QThread>
 #include <QTimer>
@@ -31,7 +30,7 @@
 #include "playerrenderer.h"
 #include "notification.h"
 #include "musiccollectionmanager.h"
-
+#include "messageboxautoclose.h"
 
 KaraokeWidget::KaraokeWidget(QWidget *parent )
     : QWidget(parent)
@@ -85,13 +84,18 @@ void KaraokeWidget::playCurrent()
     if ( pSongQueue->isEmpty() )
     {
         Logger::debug("KaraokeWidget::playCurrent nothing to play");
+        pNotification->clearOnScreenMessage();
         return;
     }
 
-    SongQueue::Song current = pSongQueue->current();
+    SongQueueItem current = pSongQueue->current();
+
+    // This shouldn't happen
+    if ( current.state == SongQueueItem::STATE_NOT_READY )
+        abort();
 
     // If current song is not ready yet, show the notification and wait until it is
-    if ( current.state == SongQueue::Song::STATE_PREPARING )
+    if ( current.state == SongQueueItem::STATE_GETTING_READY )
     {
         Logger::debug("KaraokeWidget::playCurrent want %s play but it is not ready yet", qPrintable( current.file) );
 
@@ -107,7 +111,7 @@ void KaraokeWidget::playCurrent()
 
         m_karaokeMutex.unlock();
 
-        pNotification->setOnScreenMessage( tr("Conversion in progress") );
+        pNotification->setOnScreenMessage( current.stateText() );
         QTimer::singleShot( 500, this, SLOT( playCurrent() ) );
         return;
     }
@@ -136,10 +140,14 @@ void KaraokeWidget::playCurrent()
         m_background->pause( false );
         Logger::error("KaraokeWidget::playCurrent %s: exception %s", qPrintable( current.file), qPrintable(ex) );
 
-        QMessageBox::critical( 0,
-                               "Cannot play file",
-                               tr("Cannot play file %1:\n%2") .arg( current.file ) .arg( ex ) );
+        MessageBoxAutoClose::critical(
+                    "Cannot play file",
+                    tr("Cannot play file %1:\n%2") .arg( current.file ) .arg( ex ) );
+
         delete karfile;
+
+        // Kick the current song out of queue
+        pActionHandler->dequeueSong( current.id );
         return;
     }
 
@@ -236,8 +244,12 @@ void KaraokeWidget::karaokeSongError( QString errormsg )
 {
     Logger::debug( "KaraokeWidget: song failed to load, or aborted: %s", qPrintable(errormsg) );
 
+    MessageBoxAutoClose::critical(
+                "Cannot play file",
+                tr("Cannot play music:\n%1") .arg( errormsg ) );
+
     // Resume our background if we do not have custom background (we paused it before in playCurrent() )
-    if ( !m_karaoke->hasCustomBackground() )
+    if ( m_karaoke && !m_karaoke->hasCustomBackground() )
         m_background->pause( false );
 
     karaokeSongFinished();
